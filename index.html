@@ -595,6 +595,24 @@ const COLORS = {
 const fmtCAD = (n) => `CA$${n.toFixed(2)}`;
 const fmtPct = (n) => `${n > 0 ? "+" : ""}${n.toFixed(2)}%`;
 
+// ──────────────────────────────────────────────────────────────────────────
+// Responsive: detect narrow viewport (phones, small windows) and re-evaluate
+// on resize. Single threshold at 640px — anything narrower gets the mobile
+// layout. Same URL, same HTML; JS adapts the rendering.
+// ──────────────────────────────────────────────────────────────────────────
+function useIsMobile(breakpoint = 640) {
+  const get = () =>
+    typeof window !== "undefined" && window.innerWidth < breakpoint;
+  const [isMobile, setIsMobile] = useState(get);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const update = () => setIsMobile(window.innerWidth < breakpoint);
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [breakpoint]);
+  return isMobile;
+}
+
 function interpolateAt(known, t) {
   if (known.length === 0) return 0;
   if (t <= known[0].t) return known[0].v;
@@ -923,13 +941,13 @@ function SpreadTooltip({ active, payload, sp500Mode }) {
 // Stat block
 // ──────────────────────────────────────────────────────────────────────────
 
-function StatBlock({ ticker, name, color, navNow, retNow, points }) {
+function StatBlock({ isMobile = false, ticker, name, color, navNow, retNow, points }) {
   return (
     <div
       style={{
         border: `1px solid ${COLORS.border}`,
         background: COLORS.panel,
-        padding: "20px 22px",
+        padding: isMobile ? "14px 14px 14px 18px" : "20px 22px",
         position: "relative",
         flex: 1,
       }}
@@ -947,11 +965,11 @@ function StatBlock({ ticker, name, color, navNow, retNow, points }) {
       <div
         style={{
           fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
-          fontSize: 11,
+          fontSize: isMobile ? 10 : 11,
           color: COLORS.muted,
           letterSpacing: "0.15em",
           textTransform: "uppercase",
-          marginBottom: 6,
+          marginBottom: isMobile ? 4 : 6,
         }}
       >
         TSX · {ticker}
@@ -959,16 +977,22 @@ function StatBlock({ ticker, name, color, navNow, retNow, points }) {
       <div
         style={{
           fontFamily: "ui-serif, Georgia, 'Times New Roman', serif",
-          fontSize: 17,
+          fontSize: isMobile ? 15 : 17,
           color: COLORS.text,
-          marginBottom: 18,
+          marginBottom: isMobile ? 12 : 18,
           lineHeight: 1.25,
           fontWeight: 400,
         }}
       >
         {name}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 18px" }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: isMobile ? "10px 14px" : "14px 18px",
+        }}
+      >
         <div>
           <div
             style={{
@@ -983,7 +1007,7 @@ function StatBlock({ ticker, name, color, navNow, retNow, points }) {
           <div
             style={{
               fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
-              fontSize: 22,
+              fontSize: isMobile ? 18 : 22,
               color: COLORS.text,
               marginTop: 2,
             }}
@@ -1005,7 +1029,7 @@ function StatBlock({ ticker, name, color, navNow, retNow, points }) {
           <div
             style={{
               fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
-              fontSize: 22,
+              fontSize: isMobile ? 18 : 22,
               color: retNow >= 0 ? COLORS.mcyc : COLORS.mdef,
               marginTop: 2,
             }}
@@ -1013,28 +1037,30 @@ function StatBlock({ ticker, name, color, navNow, retNow, points }) {
             {fmtPct(retNow)}
           </div>
         </div>
-        <div style={{ gridColumn: "span 2" }}>
-          <div
-            style={{
-              fontSize: 10,
-              color: COLORS.muted,
-              letterSpacing: "0.1em",
-              textTransform: "uppercase",
-            }}
-          >
-            Data Points
+        {!isMobile && (
+          <div style={{ gridColumn: "span 2" }}>
+            <div
+              style={{
+                fontSize: 10,
+                color: COLORS.muted,
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+              }}
+            >
+              Data Points
+            </div>
+            <div
+              style={{
+                fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
+                fontSize: 14,
+                color: COLORS.text,
+                marginTop: 2,
+              }}
+            >
+              {points} observation{points === 1 ? "" : "s"}
+            </div>
           </div>
-          <div
-            style={{
-              fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
-              fontSize: 14,
-              color: COLORS.text,
-              marginTop: 2,
-            }}
-          >
-            {points} observation{points === 1 ? "" : "s"}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -1045,6 +1071,7 @@ function StatBlock({ ticker, name, color, navNow, retNow, points }) {
 // ──────────────────────────────────────────────────────────────────────────
 
 function NavComparison() {
+  const isMobile = useIsMobile();
   const [mode, setMode] = useState("nav");
   const [granularity, setGranularity] = useState("weekly"); // "daily" | "weekly"
   const [showSpread, setShowSpread] = useState(false);
@@ -1095,16 +1122,16 @@ function NavComparison() {
     const n = data.length;
     if (n <= 8) return 0;
     if (n <= 20) return 1;
-    return Math.floor(n / 10);
-  }, [data]);
+    // Fewer ticks on narrow viewports so labels don't collide
+    return Math.floor(n / (isMobile ? 5 : 10));
+  }, [data, isMobile]);
 
   const barXInterval = useMemo(() => {
     const n = barData.length;
     if (n <= 8) return 0;
     if (n <= 20) return 1;
-    // Daily mode: aim for ~12 visible labels; weekly: same
-    return Math.floor(n / 12);
-  }, [barData]);
+    return Math.floor(n / (isMobile ? 6 : 12));
+  }, [barData, isMobile]);
 
   // Right y-axis domain for the cumulative S&P 500 line, padded to start
   // visually at 0 (or below if the index drew down at any point).
@@ -1123,17 +1150,19 @@ function NavComparison() {
       style={{
         background: COLORS.bg,
         color: COLORS.text,
-        padding: "32px 36px 28px",
+        padding: isMobile ? "20px 16px 20px" : "32px 36px 28px",
         fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
-        minHeight: 720,
+        minHeight: isMobile ? "auto" : 720,
       }}
     >
       {/* Header */}
       <div
         style={{
           display: "flex",
-          alignItems: "flex-end",
+          flexDirection: isMobile ? "column" : "row",
+          alignItems: isMobile ? "flex-start" : "flex-end",
           justifyContent: "space-between",
+          gap: isMobile ? 10 : 0,
           marginBottom: 4,
         }}
       >
@@ -1141,9 +1170,9 @@ function NavComparison() {
           <div
             style={{
               fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
-              fontSize: 11,
+              fontSize: isMobile ? 9 : 11,
               color: COLORS.muted,
-              letterSpacing: "0.25em",
+              letterSpacing: "0.2em",
               textTransform: "uppercase",
               marginBottom: 6,
             }}
@@ -1154,7 +1183,7 @@ function NavComparison() {
             style={{
               fontFamily: "ui-serif, Georgia, 'Times New Roman', serif",
               fontWeight: 400,
-              fontSize: 32,
+              fontSize: isMobile ? 26 : 32,
               letterSpacing: "-0.01em",
               margin: 0,
               lineHeight: 1.1,
@@ -1166,7 +1195,7 @@ function NavComparison() {
             style={{
               fontFamily: "ui-serif, Georgia, serif",
               fontStyle: "italic",
-              fontSize: 14,
+              fontSize: isMobile ? 12 : 14,
               color: COLORS.muted,
               marginTop: 6,
             }}
@@ -1177,14 +1206,14 @@ function NavComparison() {
         <div
           style={{
             fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
-            fontSize: 10,
+            fontSize: isMobile ? 9 : 10,
             color: COLORS.muted,
-            textAlign: "right",
+            textAlign: isMobile ? "left" : "right",
             letterSpacing: "0.05em",
           }}
         >
           MACKENZIE OFFICIAL NAV DATA · AUTO-REFRESHED DAILY
-          <div style={{ color: COLORS.text, fontSize: 12, marginTop: 4 }}>
+          <div style={{ color: COLORS.text, fontSize: isMobile ? 13 : 12, marginTop: 4 }}>
             Spread:{" "}
             <span style={{ color: latest.spread >= 0 ? COLORS.mcyc : COLORS.mdef }}>
               {fmtPct(latest.spread)}
@@ -1193,11 +1222,19 @@ function NavComparison() {
         </div>
       </div>
 
-      <div style={{ height: 1, background: COLORS.border, margin: "20px 0 24px" }} />
+      <div style={{ height: 1, background: COLORS.border, margin: isMobile ? "16px 0 18px" : "20px 0 24px" }} />
 
       {/* Stat blocks */}
-      <div style={{ display: "flex", gap: 16, marginBottom: 24 }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: isMobile ? "column" : "row",
+          gap: isMobile ? 10 : 16,
+          marginBottom: isMobile ? 18 : 24,
+        }}
+      >
         <StatBlock
+          isMobile={isMobile}
           ticker="MDEF"
           name="Mackenzie Defensive Tilt ETF"
           color={COLORS.mdef}
@@ -1206,6 +1243,7 @@ function NavComparison() {
           points={mdefData.length}
         />
         <StatBlock
+          isMobile={isMobile}
           ticker="MCYC"
           name="Mackenzie Cyclical Tilt ETF"
           color={COLORS.mcyc}
@@ -1219,15 +1257,24 @@ function NavComparison() {
       <div
         style={{
           display: "flex",
+          flexDirection: isMobile ? "column" : "row",
           justifyContent: "space-between",
-          alignItems: "center",
+          alignItems: isMobile ? "stretch" : "center",
+          gap: isMobile ? 10 : 0,
           marginBottom: 14,
         }}
       >
-        <div style={{ display: "flex", gap: 0, border: `1px solid ${COLORS.border}` }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 0,
+            border: `1px solid ${COLORS.border}`,
+            width: isMobile ? "100%" : "auto",
+          }}
+        >
           {[
-            ["nav", "Absolute NAV"],
-            ["return", "% from Inception"],
+            ["nav", isMobile ? "NAV" : "Absolute NAV"],
+            ["return", isMobile ? "%" : "% from Inception"],
             ["weekly", "Spread"],
           ].map(([v, l]) => (
             <button
@@ -1237,13 +1284,14 @@ function NavComparison() {
                 background: mode === v ? COLORS.accent : "transparent",
                 color: mode === v ? COLORS.bg : COLORS.muted,
                 border: "none",
-                padding: "8px 18px",
+                padding: isMobile ? "10px 12px" : "8px 18px",
                 fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
-                fontSize: 11,
+                fontSize: isMobile ? 10 : 11,
                 letterSpacing: "0.1em",
                 textTransform: "uppercase",
                 cursor: "pointer",
                 transition: "all 0.15s",
+                flex: isMobile ? 1 : "0 0 auto",
               }}
             >
               {l}
@@ -1273,7 +1321,14 @@ function NavComparison() {
             Show Spread
           </label>
         ) : mode === "weekly" ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: isMobile ? "column" : "row",
+              alignItems: isMobile ? "stretch" : "center",
+              gap: isMobile ? 8 : 18,
+            }}
+          >
             <div style={{ display: "flex", gap: 0, border: `1px solid ${COLORS.border}` }}>
               {[
                 ["daily", "Daily"],
@@ -1378,8 +1433,8 @@ function NavComparison() {
         style={{
           background: COLORS.panel,
           border: `1px solid ${COLORS.border}`,
-          padding: "20px 16px 16px",
-          height: 380,
+          padding: isMobile ? "14px 8px 10px" : "20px 16px 16px",
+          height: isMobile ? 300 : 380,
         }}
       >
         <ResponsiveContainer width="100%" height="100%">
@@ -1609,11 +1664,13 @@ function NavComparison() {
       <div
         style={{
           display: "flex",
+          flexDirection: isMobile ? "column" : "row",
           justifyContent: "space-between",
-          alignItems: "center",
+          alignItems: isMobile ? "flex-start" : "center",
+          gap: isMobile ? 6 : 0,
           marginTop: 14,
           fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
-          fontSize: 10,
+          fontSize: isMobile ? 9 : 10,
           color: COLORS.muted,
           letterSpacing: "0.05em",
         }}
@@ -1697,11 +1754,11 @@ function NavComparison() {
       {/* Disclosure */}
       <div
         style={{
-          marginTop: 20,
-          padding: 16,
+          marginTop: isMobile ? 16 : 20,
+          padding: isMobile ? 12 : 16,
           border: `1px dashed ${COLORS.border}`,
           fontFamily: "ui-serif, Georgia, serif",
-          fontSize: 12,
+          fontSize: isMobile ? 11 : 12,
           fontStyle: "italic",
           color: COLORS.muted,
           lineHeight: 1.55,
