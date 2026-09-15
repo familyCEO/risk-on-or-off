@@ -297,6 +297,8 @@ const DEFAULT_MDEF = [
   { date: "2026-09-04", nav: 21.5475 },
   { date: "2026-09-08", nav: 21.2232 },
   { date: "2026-09-09", nav: 21.1071 },
+  { date: "2026-09-10", nav: 21.1555 },
+  { date: "2026-09-11", nav: 21.2902 },
 ];
 
 const DEFAULT_MCYC = [
@@ -556,6 +558,8 @@ const DEFAULT_MCYC = [
   { date: "2026-09-04", nav: 25.0554 },
   { date: "2026-09-08", nav: 24.8524 },
   { date: "2026-09-09", nav: 24.7019 },
+  { date: "2026-09-10", nav: 24.5032 },
+  { date: "2026-09-11", nav: 24.9083 },
 ];
 
 // S&P 500 CAD (TR) — official index data from S&P Dow Jones Indices,
@@ -819,6 +823,8 @@ const DEFAULT_SP500 = [
   { date: "2026-09-04", nav: 18530.29 },
   { date: "2026-09-08", nav: 18338.77 },
   { date: "2026-09-09", nav: 18271.84 },
+  { date: "2026-09-10", nav: 18198.58 },
+  { date: "2026-09-11", nav: 18426.35 },
 ];
 
 const COLORS = {
@@ -853,6 +859,38 @@ function useIsMobile(breakpoint = 640) {
     return () => window.removeEventListener("resize", update);
   }, [breakpoint]);
   return isMobile;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Time horizon: window a date-sorted array to rows on/after a cutoff, keeping
+// the last row at or before the cutoff as the base observation so returns are
+// measured from the prior close (Dec 31 for YTD, the same calendar day one
+// year back for 1-Yr). Returns the full array when the cutoff precedes it.
+// ──────────────────────────────────────────────────────────────────────────
+const HORIZONS = [
+  ["inception", "Inception"],
+  ["1y", "1-Yr"],
+  ["ytd", "YTD"],
+];
+
+function horizonCutoff(horizon, latestDate) {
+  if (!latestDate || horizon === "inception") return null;
+  const d = new Date(latestDate + "T00:00:00Z");
+  if (horizon === "ytd") return Date.UTC(d.getUTCFullYear(), 0, 1);
+  if (horizon === "1y") {
+    return Date.UTC(d.getUTCFullYear() - 1, d.getUTCMonth(), d.getUTCDate());
+  }
+  return null;
+}
+
+function sliceHorizon(arr, cutoff) {
+  if (cutoff == null || arr.length === 0) return arr;
+  let base = -1;
+  for (let i = 0; i < arr.length; i++) {
+    if (Date.parse(arr[i].date) <= cutoff) base = i;
+    else break;
+  }
+  return base <= 0 ? arr : arr.slice(base);
 }
 
 function interpolateAt(known, t) {
@@ -1183,7 +1221,7 @@ function SpreadTooltip({ active, payload, sp500Mode }) {
 // Stat block
 // ──────────────────────────────────────────────────────────────────────────
 
-function StatBlock({ isMobile = false, ticker, name, color, navNow, retNow, points }) {
+function StatBlock({ isMobile = false, ticker, name, color, navNow, retNow, points, retLabel = "Since Inception" }) {
   return (
     <div
       style={{
@@ -1266,7 +1304,7 @@ function StatBlock({ isMobile = false, ticker, name, color, navNow, retNow, poin
               textTransform: "uppercase",
             }}
           >
-            Since Inception
+            {retLabel}
           </div>
           <div
             style={{
@@ -1318,18 +1356,55 @@ function NavComparison() {
   const [granularity, setGranularity] = useState("weekly"); // "daily" | "weekly"
   const [showSpread, setShowSpread] = useState(false);
   const [sp500Mode, setSp500Mode] = useState("cumulative"); // "off" | "periodic" | "cumulative"
+  const [horizon, setHorizon] = useState("inception"); // "inception" | "1y" | "ytd"
 
   // Data is updated by the daily scheduled task that edits this file
   // directly — no in-app uploads or paste, so the arrays are constants.
-  const mdefData = DEFAULT_MDEF;
-  const mcycData = DEFAULT_MCYC;
-  const sp500Data = DEFAULT_SP500;
+  // The selected horizon windows all three series to the same cutoff;
+  // buildSeries then rebases returns to the first row of the window.
+  const latestDate =
+    [DEFAULT_MDEF, DEFAULT_MCYC]
+      .map((a) => a[a.length - 1]?.date)
+      .filter(Boolean)
+      .sort()
+      .pop() ?? null;
+  const cutoff = horizonCutoff(horizon, latestDate);
+  const mdefData = useMemo(() => sliceHorizon(DEFAULT_MDEF, cutoff), [cutoff]);
+  const mcycData = useMemo(() => sliceHorizon(DEFAULT_MCYC, cutoff), [cutoff]);
+  const sp500Data = useMemo(() => sliceHorizon(DEFAULT_SP500, cutoff), [cutoff]);
 
   const { data, weekly, daily, hasSp500 } = useMemo(
     () => buildSeries(mdefData, mcycData, sp500Data),
     [mdefData, mcycData, sp500Data]
   );
   const latest = data[data.length - 1];
+
+  // Human labels that depend on the horizon
+  const windowStart = data[0]?.date;
+  const fmtLong = (iso) =>
+    new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", {
+      timeZone: "UTC",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
+  const horizonText = {
+    inception: {
+      subtitle: "NAV comparison since inception, September 3, 2025",
+      stat: "Since Inception",
+      btn: isMobile ? "%" : "% from Inception",
+    },
+    "1y": {
+      subtitle: `NAV comparison, trailing 1 year from ${windowStart ? fmtLong(windowStart) : ""}`,
+      stat: "1-Yr Return",
+      btn: isMobile ? "%" : "% 1-Yr",
+    },
+    ytd: {
+      subtitle: `NAV comparison, year to date ${latestDate ? latestDate.slice(0, 4) : ""} (from ${windowStart ? fmtLong(windowStart) : ""} close)`,
+      stat: "YTD Return",
+      btn: isMobile ? "%" : "% YTD",
+    },
+  }[horizon];
 
   // Source data for spread bar chart depends on granularity choice
   const barData = granularity === "daily" ? daily : weekly;
@@ -1442,7 +1517,7 @@ function NavComparison() {
               marginTop: 6,
             }}
           >
-            NAV comparison since inception, September 3, 2025
+            {horizonText.subtitle}
           </div>
         </div>
         <div
@@ -1483,6 +1558,7 @@ function NavComparison() {
           navNow={latest.mdef}
           retNow={latest.mdefReturn}
           points={mdefData.length}
+          retLabel={horizonText.stat}
         />
         <StatBlock
           isMobile={isMobile}
@@ -1492,6 +1568,7 @@ function NavComparison() {
           navNow={latest.mcyc}
           retNow={latest.mcycReturn}
           points={mcycData.length}
+          retLabel={horizonText.stat}
         />
       </div>
 
@@ -1509,36 +1586,77 @@ function NavComparison() {
         <div
           style={{
             display: "flex",
-            gap: 0,
-            border: `1px solid ${COLORS.border}`,
-            width: isMobile ? "100%" : "auto",
+            flexDirection: isMobile ? "column" : "row",
+            alignItems: isMobile ? "stretch" : "center",
+            gap: isMobile ? 8 : 12,
           }}
         >
-          {[
-            ["nav", isMobile ? "NAV" : "Absolute NAV"],
-            ["return", isMobile ? "%" : "% from Inception"],
-            ["weekly", "Spread"],
-          ].map(([v, l]) => (
-            <button
-              key={v}
-              onClick={() => setMode(v)}
-              style={{
-                background: mode === v ? COLORS.accent : "transparent",
-                color: mode === v ? COLORS.bg : COLORS.muted,
-                border: "none",
-                padding: isMobile ? "10px 12px" : "8px 18px",
-                fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
-                fontSize: isMobile ? 10 : 11,
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                cursor: "pointer",
-                transition: "all 0.15s",
-                flex: isMobile ? 1 : "0 0 auto",
-              }}
-            >
-              {l}
-            </button>
-          ))}
+          <div
+            style={{
+              display: "flex",
+              gap: 0,
+              border: `1px solid ${COLORS.border}`,
+              width: isMobile ? "100%" : "auto",
+            }}
+          >
+            {[
+              ["nav", isMobile ? "NAV" : "Absolute NAV"],
+              ["return", horizonText.btn],
+              ["weekly", "Spread"],
+            ].map(([v, l]) => (
+              <button
+                key={v}
+                onClick={() => setMode(v)}
+                style={{
+                  background: mode === v ? COLORS.accent : "transparent",
+                  color: mode === v ? COLORS.bg : COLORS.muted,
+                  border: "none",
+                  padding: isMobile ? "10px 12px" : "8px 18px",
+                  fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
+                  fontSize: isMobile ? 10 : 11,
+                  letterSpacing: "0.1em",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                  flex: isMobile ? 1 : "0 0 auto",
+                }}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+          {/* Time horizon */}
+          <div
+            style={{
+              display: "flex",
+              gap: 0,
+              border: `1px solid ${COLORS.border}`,
+              width: isMobile ? "100%" : "auto",
+            }}
+            title="Time horizon: windows all series and rebases returns to the window start"
+          >
+            {HORIZONS.map(([v, l]) => (
+              <button
+                key={v}
+                onClick={() => setHorizon(v)}
+                style={{
+                  background: horizon === v ? COLORS.text : "transparent",
+                  color: horizon === v ? COLORS.bg : COLORS.muted,
+                  border: "none",
+                  padding: isMobile ? "10px 12px" : "8px 14px",
+                  fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
+                  fontSize: isMobile ? 10 : 11,
+                  letterSpacing: "0.1em",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                  flex: isMobile ? 1 : "0 0 auto",
+                }}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
         </div>
         {mode === "return" ? (
           <label
@@ -2008,9 +2126,11 @@ function NavComparison() {
       >
         <>
           Note on data — ETF NAVs from Mackenzie Investments' "Price History" export
-          ({mdefData.length} MDEF and {mcycData.length} MCYC daily observations from inception
+          ({DEFAULT_MDEF.length} MDEF and {DEFAULT_MCYC.length} MCYC daily observations from inception
           on Sep 3, 2025; both funds launched at exactly CA$20.00). S&amp;P 500 CAD (TR) values
-          from S&amp;P Dow Jones Indices ({sp500Data.length} daily index levels). Daily and
+          from S&amp;P Dow Jones Indices ({DEFAULT_SP500.length} daily index levels). The 1-Yr and
+          YTD horizons window every series to the same cutoff and measure returns from the last
+          close on or before it (Dec 31 for YTD). Daily and
           weekly bars are computed from real day-over-day and week-over-week NAV moves on the
           observed series. The two ETF series refresh automatically each trading-day morning
           via a scheduled task that scrapes mackenzieinvestments.com.
